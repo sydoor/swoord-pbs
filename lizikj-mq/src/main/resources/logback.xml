@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+<!--     <include resource="org/springframework/boot/logging/logback/base.xml" /> -->
+  
+
+        <appender name="RollingFileAppender" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <File>/logs/lizikj-log-provider.log</File>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <FileNamePattern>/logs/lizikj-mqlog.%d{yyyy-MM-dd}.log</FileNamePattern>
+                <maxHistory>3000</maxHistory>
+            </rollingPolicy>
+            <encoder>
+                <Pattern>%d{YYYY-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{35} [%file:%line] - %msg %n</Pattern>
+            </encoder>
+        </appender>
+
+ 		<appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+ 		<encoder>
+            <pattern>%date %level [%thread] %logger{10} [%file:%line] %msg%n</pattern>
+		</encoder>
+    	</appender>
+
+
+<!--     <logger name="com.lizikj.mqlog" level="DEBUG"/> -->
+    <root level="info">
+        <appender-ref ref="RollingFileAppender" />
+        <appender-ref ref="CONSOLE" />
+    </root>
+
+</configuration>

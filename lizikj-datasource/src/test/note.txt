@@ -1,0 +1,96 @@
+http://blog.csdn.net/ggjlvzjy/article/details/51544016
+http://412887952-qq-com.iteye.com/blog/2303075
+/**
+    先定义好一写多读的数据源并放进sqlSessionFactorys， fecade调用service中的方法时，会经过DataSourceAop拦截,DataSourceAop根据方法名用ThreadLocal标记要获取的数据源为读或者写，
+           当获取数据源时(org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource.determineTargetDataSource)，
+           MyAbstractRoutingDataSource#determineCurrentLookupKey()根据ThreadLocal中的标记返回数据源对应的key。
+ 步骤 ：
+ 引入包：mybatis-spring-boot-starter mysql-connector-java  spectjweaver
+ 数据源配置项：application.properties
+ 定义读写数据源(DataSourceConfiguration)
+ 自定义数据源AbstractRoutingDataSource(MyAbstractRoutingDataSource) ，重写determineCurrentLookupKey，该方法的返回值告诉程序调用哪个数据源
+ 将读写数据源放进AbstractRoutingDataSource (MybatisConfiguration#roundRobinDataSouceProxy())
+ 定义sqlSessionFactorys(MybatisConfiguration),将datasourec设置为自定义的AbstractRoutingDataSource
+ 定义事务 MybatisConfiguration#transactionManager()，数据源要与sqlSessionFactorys的数据源一致，否则事务不回滚，同一个事务只会获取一次数据源
+ 定义aop(DataSourceAop) 其中order要比PlatformTransactionManager保证先执行aop，在执行com.lizikj.datasource.readwrite.config.MyAbstractRoutingDataSource#determineCurrentLookupKey()方法
+
+使用：
+1、pom.xml文件中引入
+<dependency>
+		  <groupId>com.lizikj</groupId>
+		  <artifactId>lizikj-datasource</artifactId>
+		  <version>1.0-SNAPSHOT</version>
+</dependency>
+2、配置文件
+如果是读写分离，写库以datasource.write开头，读库
+如果是单数据源，数据库配置以spring.datasource开头
+3、扫描包
+如果是读写分离，Bootstrap类上的@ComponentScan注解加上ccom.lizikj.datasource.readwrite 如：@ComponentScan(basePackages = {"com.lizikj.user","com.lizikj.datasource.readwrite"})
+如果是单数据源，Bootstrap类上的@ComponentScan注解加上com.lizikj.datasource.single.config
+
+bug:
+调用servive中的非事务方法，如果该方法先调用其它service的读方法会切换到读库，然后在调用dao层的写或更改操作会报读库拒绝写异常
+解决：1、aop拦截dao层或者再扫描dao,如果insert，或者update，切换到写库。
+      2、有读写操作的方法声明为事务
+目前使用第2种
+ */
+
+
+配置示例
+datasource.type=com.alibaba.druid.pool.DruidDataSource
+##写库配置
+datasource.write.driver-class-name=com.mysql.jdbc.Driver
+datasource.write.url=jdbc:mysql://192.168.5.173:3306/lzkj_cron?useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&allowMultiQueries=true
+datasource.write.username=dev_user_wt
+datasource.write.password=123456
+datasource.write.initialSize=5
+datasource.write.minIdle=5
+datasource.write.maxActive=20
+datasource.write.maxWait=60000
+datasource.write.timeBetweenEvictionRunsMillis=60000
+datasource.write.minEvictableIdleTimeMillis=300000
+datasource.write.validationQuery=SELECT 1 FROM DUAL
+datasource.write.testWhileIdle=true
+datasource.write.testOnBorrow=false
+datasource.write.testOnReturn=false
+datasource.write.poolPreparedStatements=true
+datasource.write.maxPoolPreparedStatementPerConnectionSize=20
+datasource.write.filters=stat,wall,log4j
+datasource.write.connectionProperties=druid.stat.mergeSql=true;druid.stat.slowSqlMillis=5000
+#从库配置
+#从库数据源名称
+datasource.reads.names=read1,read2,read3
+#不同从库不同属性配置
+datasource.reads.read1.driver-class-name=com.mysql.jdbc.Driver
+datasource.reads.read1.url=jdbc:mysql://192.168.5.173:3306/lzkj_cron?useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&allowMultiQueries=true
+datasource.reads.read1.username=dev_user_rd
+datasource.reads.read1.password=123456
+datasource.reads.read2.driver-class-name=com.mysql.jdbc.Driver
+datasource.reads.read2.url=jdbc:mysql://192.168.5.173:3306/lzkj_cron?useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&allowMultiQueries=true
+datasource.reads.read2.username=dev_user_rd
+datasource.reads.read2.password=123456
+datasource.reads.read3.driver-class-name=com.mysql.jdbc.Driver
+datasource.reads.read3.url=jdbc:mysql://192.168.5.173:3306/lzkj_cron?useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&allowMultiQueries=true
+datasource.reads.read3.username=dev_user_rd
+datasource.reads.read3.password=123456
+#从库公用属性配置
+datasource.reads.initialSize=5
+datasource.reads.minIdle=5
+datasource.reads.maxActive=20
+# \u914d\u7f6e\u83b7\u53d6\u8fde\u63a5\u7b49\u5f85\u8d85\u65f6\u7684\u65f6\u95f4
+datasource.reads.maxWait=60000
+# \u914d\u7f6e\u95f4\u9694\u591a\u4e45\u624d\u8fdb\u884c\u4e00\u6b21\u68c0\u6d4b\uff0c\u68c0\u6d4b\u9700\u8981\u5173\u95ed\u7684\u7a7a\u95f2\u8fde\u63a5\uff0c\u5355\u4f4d\u662f\u6beb\u79d2
+datasource.reads.timeBetweenEvictionRunsMillis=60000
+# \u914d\u7f6e\u4e00\u4e2a\u8fde\u63a5\u5728\u6c60\u4e2d\u6700\u5c0f\u751f\u5b58\u7684\u65f6\u95f4\uff0c\u5355\u4f4d\u662f\u6beb\u79d2
+datasource.reads.minEvictableIdleTimeMillis=300000
+datasource.reads.validationQuery=SELECT 1 FROM DUAL
+datasource.reads.testWhileIdle=true
+datasource.reads.testOnBorrow=false
+datasource.reads.testOnReturn=false
+# \u6253\u5f00PSCache\uff0c\u5e76\u4e14\u6307\u5b9a\u6bcf\u4e2a\u8fde\u63a5\u4e0aPSCache\u7684\u5927\u5c0f
+datasource.reads.poolPreparedStatements=true
+datasource.reads.maxPoolPreparedStatementPerConnectionSize=20
+# \u914d\u7f6e\u76d1\u63a7\u7edf\u8ba1\u62e6\u622a\u7684filters\uff0c\u53bb\u6389\u540e\u76d1\u63a7\u754c\u9762sql\u65e0\u6cd5\u7edf\u8ba1\uff0c'wall'\u7528\u4e8e\u9632\u706b\u5899
+datasource.reads.filters=stat,wall,log4j
+# \u901a\u8fc7connectProperties\u5c5e\u6027\u6765\u6253\u5f00mergeSql\u529f\u80fd\uff1b\u6162SQL\u8bb0\u5f55
+datasource.reads.connectionProperties=druid.stat.mergeSql=true;druid.stat.slowSqlMillis=5000
